@@ -1,0 +1,131 @@
+package Nykaa;
+
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.openqa.selenium.By;
+import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.interactions.Actions;
+import org.openqa.selenium.support.ui.ExpectedConditions;
+import org.openqa.selenium.support.ui.WebDriverWait;
+
+public class nyka4 {
+
+    public static void main(String[] args) throws Exception {
+
+        ChromeOptions options = new ChromeOptions();
+        WebDriver driver = new ChromeDriver(options);
+        driver.manage().window().maximize();
+        driver.get("https://www.nykaa.com/");
+
+        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(15));
+        Actions actions = new Actions(driver);
+
+        // Hover over Makeup category
+        WebElement makeup = wait.until(ExpectedConditions.visibilityOfElementLocated(
+                By.xpath("(//li[@class='MegaDropdownHeadingbox'])[1]")));
+        actions.moveToElement(makeup).perform();
+
+        // Get subcategory URLs
+        List<WebElement> links = driver.findElements(By.xpath("(//li[@class='MegaDropdownHeadingbox'])[1]//following-sibling::div//ul//li//a"));
+        Map<String, String> subcategoryMap = new HashMap<>();
+        for (WebElement link : links) {
+            String name = link.getText().trim();
+            if (!name.isEmpty()) {
+                subcategoryMap.put(name.toLowerCase(), link.getAttribute("href"));
+            }
+        }
+
+        List<String> subcategoriesToClick = Arrays.asList("Face Primer", "Concealer", "Foundation");
+
+        for (String subcategory : subcategoriesToClick) {
+            try {
+                String url = subcategoryMap.get(subcategory.toLowerCase());
+                if (url == null) {
+                    System.out.println(" Subcategory not found: " + subcategory);
+                    continue;
+                }
+
+                System.out.println("\n\n==========================");
+                System.out.println("Scraping Category: " + subcategory);
+                System.out.println("==========================");
+
+                driver.navigate().to(url);
+                Thread.sleep(3000);
+
+                try {
+                    WebElement popupClose = wait.until(ExpectedConditions.elementToBeClickable(
+                            By.cssSelector(".css-47sehv")));
+                    popupClose.click();
+                    System.out.println("Closed popup");
+                } catch (Exception ignored) {}
+
+                int pageNumber = 1;
+                int productGlobalIndex = 1;
+                int totalProducts = 0;
+                boolean hasMorePages = true;
+
+                while (hasMorePages) {
+                    // Wait for product grid
+                    wait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//div[@class='css-d5z3ro']")));
+                    List<WebElement> products = driver.findElements(By.xpath("//div[@class='css-d5z3ro']"));
+
+                    System.out.println("\n📄 Page " + pageNumber + ": Found " + products.size() + " products");
+
+                    for (WebElement product : products) {
+                        String name = safeGetText(product, ".//div[contains(@class,'css-xrzmfa')]");
+                        String sp = safeGetText(product, ".//span[@class='css-111z9ua']");
+                        String mrp = safeGetText(product, ".//span[@class='css-1jczs19']");
+                        String rating = safeGetText(product, ".//span[contains(@class,'css-1ebprri')]");
+
+                        System.out.println("\n🔢 Product " + productGlobalIndex++);
+                        System.out.println(name);
+                        System.out.println("SP: " + sp);
+                        System.out.println("MRP: " + mrp);
+                        System.out.println("Rating: " + rating);
+                        System.out.println("-----------------------------------------");
+                    }
+
+                    totalProducts += products.size();
+
+                    try {
+                        WebElement nextPageButton = wait.until(ExpectedConditions.elementToBeClickable(
+                                By.xpath("//a[@class='css-1zi560']")));
+                        ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView(true);", nextPageButton);
+                        Thread.sleep(1000);
+                        ((JavascriptExecutor) driver).executeScript("arguments[0].click();", nextPageButton);
+                        pageNumber++;
+                        System.out.println("\n Navigating to next page...");
+                        Thread.sleep(3000);
+                    } catch (Exception e) {
+                        System.out.println(" No more pages or error navigating: " + e.getMessage());
+                        hasMorePages = false;
+                    }
+                }
+
+                System.out.println("\n Total products scraped in " + subcategory + ": " + totalProducts);
+
+            } catch (Exception e) {
+                System.out.println("Error with subcategory " + subcategory + ": " + e.getMessage());
+            }
+        }
+
+        driver.quit();
+    }
+
+    public static String safeGetText(WebElement parent, String xpath) {
+        try {
+            WebElement element = parent.findElement(By.xpath(xpath));
+            return element.getText().trim();
+        } catch (Exception e) {
+            return "N/A";
+        }
+    }
+}

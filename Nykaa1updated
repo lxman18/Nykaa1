@@ -1,0 +1,194 @@
+package Nykaa;
+
+import java.io.FileOutputStream;
+import java.time.Duration;
+import java.util.*;
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.openqa.selenium.*;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.interactions.Actions;
+import org.openqa.selenium.support.ui.ExpectedConditions;
+import org.openqa.selenium.support.ui.WebDriverWait;
+
+public class Nykka_code {
+
+    public static void main(String[] args) throws Exception {
+
+        ChromeOptions options = new ChromeOptions();
+        WebDriver driver = new ChromeDriver(options);
+        driver.manage().window().maximize();
+        driver.get("https://www.nykaa.com/");
+
+        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(15));
+        Actions actions = new Actions(driver);
+
+        // Hover over Makeup category
+        WebElement makeup = wait.until(ExpectedConditions.visibilityOfElementLocated(
+                By.xpath("(//li[@class='MegaDropdownHeadingbox'])[1]")));
+        actions.moveToElement(makeup).perform();
+
+        // Extract subcategories
+        List<WebElement> links = driver.findElements(
+                By.xpath("(//li[@class='MegaDropdownHeadingbox'])[1]//following-sibling::div//ul//li//a"));
+
+        Map<String, String> subcategoryMap = new LinkedHashMap<>();
+        for (WebElement link : links) {
+            String name = link.getText().trim();
+            if (!name.isEmpty()) {
+                subcategoryMap.put(name.toLowerCase(), link.getAttribute("href"));
+            }
+        }
+
+        Workbook workbook = new XSSFWorkbook();
+        Sheet subcatSheet = workbook.createSheet("Subcategories");
+        Row subcatHeader = subcatSheet.createRow(0);
+        subcatHeader.createCell(0).setCellValue("Category Name");
+        subcatHeader.createCell(1).setCellValue("URL");
+
+        int subcatRowCount = 1;
+        for (Map.Entry<String, String> entry : subcategoryMap.entrySet()) {
+            Row row = subcatSheet.createRow(subcatRowCount++);
+            row.createCell(0).setCellValue(entry.getKey());
+            row.createCell(1).setCellValue(entry.getValue());
+        }
+
+        List<String> subcategoriesToClick = Arrays.asList("Face Primer");
+
+        for (String subcategory : subcategoriesToClick) {
+            try {
+                String url = subcategoryMap.get(subcategory.toLowerCase());
+                if (url == null) continue;
+
+                driver.navigate().to(url);
+                Thread.sleep(3000);
+
+                // Close popup if present
+                try {
+                    WebElement popupClose = wait.until(ExpectedConditions.elementToBeClickable(
+                            By.cssSelector(".css-47sehv")));
+                    popupClose.click();
+                } catch (Exception ignored) {}
+
+                Sheet sheet = workbook.createSheet(subcategory.replaceAll("\\s+", "_"));
+                createHeader(sheet);
+                int rowCount = 1;
+                int pageNumber = 1;
+                int totalProducts = 0;
+                boolean hasMorePages = true;
+                String originalWindow = driver.getWindowHandle();
+
+                while (hasMorePages) {
+                    wait.until(ExpectedConditions.visibilityOfElementLocated(By.xpath("//div[@class='css-d5z3ro']")));
+                    List<WebElement> products = driver.findElements(By.xpath("//div[@class='css-d5z3ro']//a[@class='css-qlopj4']"));
+                    
+                    System.out.println("\n📄 Page " + pageNumber + ": Found " + products.size() + " products");
+
+                    for (int i = 0; i < products.size(); i++) {
+                        List<WebElement> refreshedProducts = driver.findElements(By.xpath("//div[@class='css-d5z3ro']//a[@class='css-qlopj4']"));
+                        String productLink = refreshedProducts.get(i).getAttribute("href");
+
+                        // Open in new tab
+                        ((JavascriptExecutor) driver).executeScript("window.open(arguments[0], '_blank');", productLink);
+                        Thread.sleep(2000);
+
+                        // Switch to new tab
+                        for (String windowHandle : driver.getWindowHandles()) {
+                            if (!windowHandle.equals(originalWindow)) {
+                                driver.switchTo().window(windowHandle);
+                                break;
+                            }
+                        }
+                       
+                        String name = safeText(driver, "//h1");
+                        String sp = safeText(driver, "//span[contains(@class,'css-1jczs19')]")
+                        		.replace("₹","");
+                        String mrp = safeText(driver, "//span[contains(@class,'css-u05rr')]")
+                        		.replace("₹","").replace("MRP:","").trim();
+                        String rating = safeText(driver, "//div[@class='css-m6n3ou']");
+                        String uom = safeText(driver, "//span[@class='css-1ctpgu6']")
+                        		.replace("(","").replace(")","").trim();
+
+                        System.out.println("\n Product " + (rowCount - 1));
+                        
+                        System.out.println("URL: " + driver.getCurrentUrl());
+                        System.out.println(name);
+                        System.out.println(sp);
+                        System.out.println( mrp);
+                        System.out.println(rating);
+                        System.out.println(uom);
+                        System.out.println("-----------------------------------------");
+                      
+                       // totalProducts += products.size();
+
+
+//                        // Print info
+//                        System.out.println("Name: " + name);
+//                        System.out.println("SP: " + sp + " | MRP: " + mrp + " | Rating: " + rating + " | UOM: " + uom);
+
+                        if (!name.equals("N/A")) {
+                            Row row = sheet.createRow(rowCount++);
+                            row.createCell(0).setCellValue(name);
+                            row.createCell(1).setCellValue(driver.getCurrentUrl());
+                            row.createCell(2).setCellValue(sp);
+                            row.createCell(3).setCellValue(mrp);
+                            row.createCell(4).setCellValue(rating);
+                            row.createCell(5).setCellValue(uom);
+                        }
+
+                        // Close tab and switch back
+                        driver.close();
+                        driver.switchTo().window(originalWindow);
+                        Thread.sleep(1000);
+                    }
+                    totalProducts += products.size();
+                    // Try going to next page
+                    try {
+                        WebElement nextPageButton = wait.until(ExpectedConditions.elementToBeClickable(
+                                By.xpath("//a[@class='css-1zi560']")));
+                        ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView(true);", nextPageButton);
+                        Thread.sleep(1000);
+                        ((JavascriptExecutor) driver).executeScript("arguments[0].click();", nextPageButton);
+                        pageNumber++;
+                        Thread.sleep(3000);
+                    } catch (Exception e) {
+                        hasMorePages = false;
+                        System.out.println("📌 No more pages in: " + subcategory);
+                    }
+                }
+
+            } catch (Exception e) {
+                System.out.println("⚠️ Error scraping " + subcategory + ": " + e.getMessage());
+            }
+        }
+
+        String filePath = ".//Output//Nykaa_Products_Clicked.xlsx";
+        FileOutputStream out = new FileOutputStream(filePath);
+        workbook.write(out);
+        out.close();
+        workbook.close();
+        driver.quit();
+
+        System.out.println(" Data saved to: " + filePath);
+    }
+
+    public static String safeText(WebDriver driver, String xpath) {
+        try {
+            return driver.findElement(By.xpath(xpath)).getText().trim();
+        } catch (Exception e) {
+            return "N/A";
+        }
+    }
+
+    public static void createHeader(Sheet sheet) {
+        Row header = sheet.createRow(0);
+        header.createCell(0).setCellValue("Product Name");
+        header.createCell(1).setCellValue("Product URL");
+        header.createCell(2).setCellValue("Selling Price");
+        header.createCell(3).setCellValue("MRP");
+        header.createCell(4).setCellValue("Rating");
+        header.createCell(5).setCellValue("UOM");
+    }
+}
